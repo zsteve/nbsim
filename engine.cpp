@@ -24,7 +24,7 @@ const int pi = 3.14159265359;
 
 extern double grav_const;
 
-const double dt = 0.01; // time step
+const double dt = 0.005; // time step
 
 typedef unsigned int uint32_t;
 
@@ -66,7 +66,7 @@ void init_universe(universe& u, int n){
     
     for(int i = 1 ; i < n; i++){
         // want to put other particles in orbit about the central particle
-        double orbit_r = dist(gen)+0.5;
+        double orbit_r = 1;
         double orbit_v = sqrt(grav_const*center_mass/orbit_r)*1.0;
 
         // generate polar and azimuthal angles randomly
@@ -86,7 +86,17 @@ void init_universe(universe& u, int n){
     }
 }
 
+#define INTEGRATION_VERLET
+
 void simulate_step(universe& u){
+
+#ifdef INTEGRATION_VERLET
+static int first_exec = 0;
+#endif
+
+#ifdef INTEGRATION_VERLET
+    if(!first_exec){
+#endif
     // set all net forces to zero first 
     for(int i = 0; i < u.get_size(); i++) u[i].f = r3vec(0, 0, 0);
     // now compute net force on each particle
@@ -99,14 +109,42 @@ void simulate_step(universe& u){
             u[j].f-=f_ij;
         }
     }
+#ifdef INTEGRATION_VERLET
+    first_exec = 1;
+    }
+#endif
 
     // computed resultant forces, now numerically integrate to
     // solve for momentum and position
     for(int i = 0; i < u.get_size(); i++){
+#ifdef INTEGRATION_EULER
         // p(t + dt) = p(t) + F_tot(t) * dt
         u.get_next()[i].p = u[i].p + u[i].f*dt;
         // r(t + dt) = r(t) + 1/m*p(t) * dt
         u.get_next()[i].r = u[i].r + 1/(u[i].m)*u[i].p*dt;
+#elif defined INTEGRATION_VERLET
+        vector<particle>& v = u.get_next();
+
+        // r(t + dt) = r(t) + p(t)dt/m + 0.5F(t)*dt^2/m
+        v[i].r = u[i].r + u[i].p*dt*(1/u[i].m) + 0.5*u[i].f*dt*dt*(1/u[i].m);
+
+        // need to compute forces for t+dt
+        // set all net forces to zero first 
+        for(int i = 0; i < v.size(); i++)
+            v[i].f = r3vec(0, 0, 0);
+        // now compute net force on each particle
+        for(int i = 0; i < v.size(); i++){
+            r3vec f_i();    // net force on particle i
+            for(int j = i+1; j < v.size(); j++){
+                // loop through all particles not previously considered, j
+                r3vec f_ij = get_grav_atr(v[i], v[j]);
+                v[i].f+=f_ij;
+                v[j].f-=f_ij;
+            }
+        }
+        // p(t + dt) = p(t) + 0.5(F(t) + F(t + dt))dt
+        u.get_next()[i].p = u[i].p + 0.5*(v[i].f + u[i].f)*dt;
+#endif
     }
 
     u.swap();
@@ -133,7 +171,7 @@ void scale_up(){
     }
 }
 
-const int num_particles = 3;
+const int num_particles = 5;
 const double zoom_factor_x = 1000;
 const double zoom_factor_y = 1000;
 
